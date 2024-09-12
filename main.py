@@ -10,7 +10,7 @@ url_pattern = re.compile(
     r'[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
 )
 
-def tunnel(queue):
+def tunnel():
     ssh_command = "ssh -o StrictHostKeyChecking=no -R 80:127.0.0.1:5500 serveo.net"
     found_link = None
 
@@ -23,7 +23,7 @@ def tunnel(queue):
             links = url_pattern.findall(line_text)
             if links != [] and found_link == None:
                 found_link = links[0]
-                queue.put(found_link)
+                open("link.txt","w").write(found_link)
         elif not process.poll():
             break
 
@@ -143,16 +143,20 @@ def server():
     app.run(port=5500)
 
 if __name__=="__main__":
-    queue = Queue()
-    tunnel_proc = Process(target=tunnel, args=(queue,))
+    tunnel_proc = Process(target=tunnel)
     tunnel_proc.start()
-    tunnel_url = queue.get()
-    print(tunnel_url)
+    tunnel_url = ""
+    while tunnel_url == "":
+        tunnel_url = open("link.txt").read()
+        time.sleep(1)
     os.system("open " + tunnel_url)
+
+    open("link.txt","w").write("")
+    print(tunnel_url)
 
     server_process = Process(target=server)
     server_process.start()
-    
+
     time.sleep(300)
     tunnel_proc.terminate()
     server_process.terminate()
