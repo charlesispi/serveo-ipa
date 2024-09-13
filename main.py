@@ -1,8 +1,8 @@
 from flask import Flask, render_template_string, send_file
 import plistlib, subprocess, re
 from zipfile import ZipFile, Path
-from multiprocessing import Process, Queue
 import time, os
+import threading, sys
 
 url_pattern = re.compile(
     r'http[s]?://'
@@ -143,7 +143,7 @@ def server():
     app.run(port=5500)
 
 if __name__=="__main__":
-    tunnel_proc = Process(target=tunnel)
+    tunnel_proc = threading.Thread(target=tunnel)
     tunnel_proc.start()
     tunnel_url = ""
     while tunnel_url == "":
@@ -154,9 +154,8 @@ if __name__=="__main__":
     open("link.txt","w").write("")
     print(tunnel_url)
 
-    server_process = Process(target=server)
+    server_process = threading.Thread(target=server)
     server_process.start()
 
     time.sleep(300)
-    tunnel_proc.terminate()
-    server_process.terminate()
+    sys.exit()
