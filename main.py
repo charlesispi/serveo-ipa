@@ -146,6 +146,7 @@ def install_homepage():
         <body>
             <h1><a href="{{ url }}" target="_blank">Tap to install app</a></h1>
             {% if not packager.signed %}<h3>Fyi, this ipa didn't look like it was signed. It most likely won't work.</h3>{% endif %}
+            <h4>If the button doesn't seem to be working, switch over to A-Shell for a moment and the popup might appear</h4>
         </body>
     </html>
     '''
@@ -172,11 +173,13 @@ def ashell_page():
         </head>
         <body>
             <h1>Safari should have opened.</h1>
+            <h3>If it didn't copy paste this link into safari:</h3>
+            <p>{{ tunnel_url }}</p>
             <h3>A-Shell needs to be force restarted after running this script.</h3>
         </body>
     </html>
     '''
-    return render_template_string(template)
+    return render_template_string(template, tunnel_url=tunnel_url)
 
 @app.route("/install.plist")
 def install_plist():
