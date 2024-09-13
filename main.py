@@ -180,7 +180,7 @@ if __name__=="__main__":
 
     tunnel_url = url_queue.get()
     print(tunnel_url)
-    os.system("open " + tunnel_url)
+    os.system("internalbrowser " + tunnel_url)
 
     download_tracking = threading.Thread(target=track_download)
     download_tracking.start()
