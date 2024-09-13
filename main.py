@@ -3,7 +3,7 @@ import subprocess, re
 import time, os
 import threading
 from ipa_packager import ipaPackager
-import queue, signal, sys
+import queue, signal
 
 url_pattern = re.compile(
     r'http[s]?://'
@@ -29,7 +29,6 @@ def tunnel():
             break
     stop_event.wait()
     process.kill()
-    os._exit(0)
 
 app = Flask(__name__)
 
@@ -124,6 +123,9 @@ def app_icon():
 url_prefix = "itms-services://?action=download-manifest&url="
 tunnel_url = ""
 
+def shutdown():
+    os._exit(0)
+
 @app.route("/") #packager
 def install_homepage():
     template = '''
@@ -167,7 +169,7 @@ def track_download():
             break
     time.sleep(5)
     stop_event.set()
-    os._exit(0)
+    #os._exit(0)
 
 def server():
     app.run(port=5500, host="127.0.0.1")
@@ -189,7 +191,6 @@ if __name__=="__main__":
         server_process = threading.Thread(target=server)
         server_process.start()
         stop_event.wait()
-        raise RuntimeError("Server going down")
-    except RuntimeError:
-        os._exit(0)
-    raise KeyboardInterrupt
+        os.system("exit")
+    except KeyboardInterrupt:
+        shutdown()
