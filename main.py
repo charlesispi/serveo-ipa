@@ -1,8 +1,9 @@
-from flask import Flask, render_template_string, send_file
-import plistlib, subprocess, re
-from zipfile import ZipFile, Path
+from flask import Flask, render_template_string, send_file, after_this_request, Response, request, abort
+import subprocess, re
 import time, os
-import threading, sys
+import threading
+from ipa_packager import ipaPackager
+import queue
 
 url_pattern = re.compile(
     r'http[s]?://'
@@ -15,7 +16,7 @@ def tunnel():
     found_link = None
 
     process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
+    
     while True:
         next_line = process.stdout.readline()
         if next_line:
@@ -23,100 +24,109 @@ def tunnel():
             links = url_pattern.findall(line_text)
             if links != [] and found_link == None:
                 found_link = links[0]
-                open("link.txt","w").write(found_link)
+                url_queue.put(found_link)
         elif not process.poll():
             break
 
-base_plist = {"items": []}
-app_item = {
-    "assets": [],
-    "metadata": {}
-}
-
-software_package = {
-    "kind": "software-package",
-    "url": ""
-}
-display_image = {
-    "kind": "display-image",
-    "needs-shine": False,
-    "url": ""
-}
-metadata = {
-    "bundle-identifier": "org.company.app",
-    "bundle-version": "1",
-    "kind": "software",
-    "title": "Unknown"
-}
-
-
 app = Flask(__name__)
 
-@app.route("/download")
+def generate_file(file_path):
+    global total_downloaded_bytes
+    with open(file_path, 'rb') as f:
+        while chunk := f.read(4096):
+            total_downloaded_bytes += len(chunk)
+            yield chunk
+
+def generate_partial_file(file_path, start, end):
+    global total_downloaded_bytes
+    with open(file_path, 'rb') as f:
+        f.seek(start)
+        chunk = f.read(min(4096, end - start))
+        while start < end and chunk:
+            start += len(chunk)
+            total_downloaded_bytes += len(chunk)
+            yield chunk
+
+@app.route('/download', methods=['HEAD'])
+def head():
+    file_path = 'input.ipa'
+    response = send_file(file_path, download_name="app.ipa")
+    file_size = os.path.getsize(file_path)
+    response.headers["Content-Length"] = str(file_size)
+    return response
+
+total_downloaded_bytes = 0
+file_size = 1
+
+@app.route("/download", methods=['GET'])
 def download_app():
-    return send_file("input.ipa", download_name="app.ipa")
+    print(request.headers)
+    '''
+    response = send_file("input.ipa", download_name="app.ipa")
+    @response.call_on_close
+    def shutdown_server(response):
+        print("hello")
+        shutdown()s
+        print(response)
+        return response
+    return response'''
+    
+    file_path = 'input.ipa'
+    global file_size
+    file_size = os.path.getsize(file_path)
+    last_modified_time = os.path.getmtime(file_path)
+    last_modified_str = time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.gmtime(last_modified_time))
+    etag = f'"{last_modified_time}-{file_size}-{hash(file_path)}"'
+
+    range_header = request.headers.get('Range')
+
+    if range_header:
+        byte_range = range_header.strip().split('=')[1]
+        start, end = byte_range.split('-')
+        start = int(start)
+        end = int(end) if end else file_size - 1
+
+        print(start)
+        print(end)
+
+        if start > file_size or end >= file_size:
+            abort(416)
+
+        response = Response(
+            generate_partial_file(file_path, start, end + 1),
+            content_type='application/x-itunes-ipa'
+        )
+        response.headers["Content-Disposition"] = 'attachment; filename=app.ipa'
+        response.headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+        #response.headers["Content-Length"] = start - end
+        response.headers['Accept-Ranges'] = 'bytes'
+        response.headers["Last-Modified"] = last_modified_str
+        response.headers["ETag"] = etag
+        response.status_code = 206
+    else:
+        global total_downloaded_bytes
+        total_downloaded_bytes = 0
+        response = Response(generate_file(file_path), content_type='application/x-itunes-ipa')
+        response.headers["Content-Disposition"] = 'attachment; filename=app.ipa'
+        response.headers["Content-Length"] = str(file_size)
+        response.headers["Last-Modified"] = last_modified_str
+        response.headers["ETag"] = etag
+
+    return response
 
 @app.route("/icon.png")
 def app_icon():
     return send_file("icon.png", download_name="image.png")
 
-def rip_ipa_info():
-    myzip = ZipFile("input.ipa")
-    files = myzip.namelist()
-    filter_info = [i for i in files if "Info.plist" in i]
-    filter_proj = [i for i in filter_info if "lproj" not in i]
-
-    complete_plist_data = {}
-
-    for info_plist_path in [i for i in files if "plist" in i]:
-        info_plist = myzip.read(info_plist_path)
-        plist = plistlib.loads(info_plist)
-        for k in plist:
-            complete_plist_data[k] = plist[k]
-    myzip.close()
-
-    return {
-        "bundle-identifier": complete_plist_data["CFBundleIdentifier"],
-        "title": complete_plist_data["CFBundleName"],
-        "version": complete_plist_data["CFBundleVersion"],
-        "primary-icon":complete_plist_data["CFBundleIcons"]["CFBundlePrimaryIcon"]["CFBundleIconFiles"][0]
-    }
-
-def rip_ipa_images(primary_icon):
-    myzip = ZipFile("input.ipa")
-    files = myzip.namelist()
-    filter_info = [i for i in files if ".png" in i]
-    filter_icon = [i for i in filter_info if primary_icon.lower() in i.lower()]
-
-    icon_path = filter_icon[0]
-    image_bytes = myzip.read(icon_path)
-    open("icon.png","wb").write(image_bytes)
-
-    myzip.close()
-
-def load_ipa():
-    ipa_info = rip_ipa_info()
-    rip_ipa_images(ipa_info['primary-icon'])
-    metadata['bundle-identifier'] = ipa_info['bundle-identifier']
-    metadata['title'] = ipa_info['title']
-    metadata['version'] = ipa_info['version']
-
-def save_app_plist(tunnel_url):
-    software_package['url'] = tunnel_url.rstrip("/") + "/download"
-    app_item['assets'].append(software_package)
-    display_image['url'] = tunnel_url.rstrip("/") + "/icon.png"
-    app_item['assets'].append(display_image)
-    app_item['metadata'] = metadata
-    base_plist['items'].append(app_item)
-    plistlib.dump(base_plist, open("install.plist", "wb"))
-    return tunnel_url.rstrip("/") + "/install.plist"
-
 url_prefix = "itms-services://?action=download-manifest&url="
 tunnel_url = ""
 
-@app.route("/")
+def shutdown():
+    os._exit(0)
+
+@app.route("/") #packager
 def install_homepage():
-    return render_template_string('''
+    template = '''
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!DOCTYPE html>
     <html>
@@ -132,34 +142,46 @@ def install_homepage():
             </style>
         </head>
         <body>
-            <h1><a href="''' + url_prefix + tunnel_url.rstrip("/") + "/install.plist" + '''">Tap to install app</a></h1>
+            <h1><a href="{{ url }}">Tap to install app</a></h1>
+            {% if not packager.signed %}<h3>Fyi, this ipa didn't look like it was signed. It most likely won't work.</h3>{% endif %}
         </body>
     </html>
-    ''')
+    '''
+    return render_template_string(template, url=(url_prefix + tunnel_url.rstrip("/") + "/install.plist"), packager=packager)
 
 @app.route("/install.plist")
 def install_plist():
     return send_file("install.plist")
 
-def server():
-    load_ipa()
-    save_app_plist(tunnel_url)
-    app.run(port=5500)
+packager = ipaPackager()
+url_queue = queue.Queue()
+
+def track_download():
+    global total_downloaded_bytes
+    global file_size
+    while True:
+        percentage = total_downloaded_bytes / file_size
+        time.sleep(0.5)
+        if percentage > 0.99:
+            break
+    time.sleep(5)
+    shutdown()
 
 if __name__=="__main__":
     tunnel_proc = threading.Thread(target=tunnel)
     tunnel_proc.start()
-    tunnel_url = ""
-    while tunnel_url == "":
-        tunnel_url = open("link.txt").read()
-        time.sleep(1)
+
+    tunnel_url = url_queue.get()
+    print(tunnel_url)
     os.system("open " + tunnel_url)
 
-    open("link.txt","w").write("")
-    print(tunnel_url)
+    download_tracking = threading.Thread(target=track_download)
+    download_tracking.start()
 
-    server_process = threading.Thread(target=server)
-    server_process.start()
-
-    time.sleep(300)
-    sys.exit()
+    packager.load_ipa()
+    packager.save_app_plist(tunnel_url)
+    try:
+        app.run(port=5500, host="127.0.0.1")
+        #app.run(port=5500, host="0.0.0.0")
+    except KeyboardInterrupt:
+        shutdown()
