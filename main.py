@@ -3,7 +3,7 @@ import subprocess, re
 import time, os
 import threading
 from ipa_packager import ipaPackager
-import queue
+import queue, signal, sys
 
 url_pattern = re.compile(
     r'http[s]?://'
@@ -27,6 +27,9 @@ def tunnel():
                 url_queue.put(found_link)
         elif not process.poll():
             break
+    stop_event.wait()
+    process.kill()
+    os._exit(0)
 
 app = Flask(__name__)
 
@@ -121,9 +124,6 @@ def app_icon():
 url_prefix = "itms-services://?action=download-manifest&url="
 tunnel_url = ""
 
-def shutdown():
-    os._exit(0)
-
 @app.route("/") #packager
 def install_homepage():
     template = '''
@@ -155,6 +155,7 @@ def install_plist():
 
 packager = ipaPackager()
 url_queue = queue.Queue()
+stop_event = threading.Event()
 
 def track_download():
     global total_downloaded_bytes
@@ -165,7 +166,11 @@ def track_download():
         if percentage > 0.99:
             break
     time.sleep(5)
-    shutdown()
+    stop_event.set()
+    os._exit(0)
+
+def server():
+    app.run(port=5500, host="127.0.0.1")
 
 if __name__=="__main__":
     tunnel_proc = threading.Thread(target=tunnel)
@@ -181,7 +186,10 @@ if __name__=="__main__":
     packager.load_ipa()
     packager.save_app_plist(tunnel_url)
     try:
-        app.run(port=5500, host="127.0.0.1")
-        #app.run(port=5500, host="0.0.0.0")
-    except KeyboardInterrupt:
-        shutdown()
+        server_process = threading.Thread(target=server)
+        server_process.start()
+        stop_event.wait()
+        raise RuntimeError("Server going down")
+    except RuntimeError:
+        os._exit(0)
+    raise KeyboardInterrupt
