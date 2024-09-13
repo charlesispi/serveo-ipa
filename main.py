@@ -137,6 +137,10 @@ def install_homepage():
     </html>
     ''')
 
+@app.route("/install.plist")
+def install_plist():
+    return send_file("install.plist")
+
 def server():
     load_ipa()
     save_app_plist(tunnel_url)
