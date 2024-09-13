@@ -151,6 +151,33 @@ def install_homepage():
     '''
     return render_template_string(template, url=(url_prefix + tunnel_url.rstrip("/") + "/install.plist"), packager=packager)
 
+@app.route("/ashell")
+def ashell_page():
+    template = '''
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!DOCTYPE html>
+    <html>
+        <head>
+            <title>Install App</title>
+            <style> 
+                body {
+                    text-align: center;
+                    background-color: #000;
+                }
+                a {
+                    text-decoration: none!important;
+                }
+                * { color: #fff!important }
+            </style>
+        </head>
+        <body>
+            <h1>Safari should have opened.</h1>
+            <h3>A-Shell needs to be force restarted after running this script.</h3>
+        </body>
+    </html>
+    '''
+    return render_template_string(template)
+
 @app.route("/install.plist")
 def install_plist():
     return send_file("install.plist")
@@ -189,8 +216,8 @@ if __name__=="__main__":
     try:
         server_process = threading.Thread(target=server)
         server_process.start()
-        time.sleep(1)
-        os.system("internalbrowser " + tunnel_url)
+        os.system("internalbrowser " + tunnel_url.rstrip("/") + "/ashell")
+        os.system("open" + tunnel_url)
         stop_event.wait()
         os.system("exit")
     except KeyboardInterrupt:
