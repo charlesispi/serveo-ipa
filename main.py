@@ -144,7 +144,7 @@ def install_homepage():
             </style>
         </head>
         <body>
-            <h1><a href="{{ url }}">Tap to install app</a></h1>
+            <h1><a href="{{ url }}" target="_blank">Tap to install app</a></h1>
             {% if not packager.signed %}<h3>Fyi, this ipa didn't look like it was signed. It most likely won't work.</h3>{% endif %}
         </body>
     </html>
@@ -180,7 +180,6 @@ if __name__=="__main__":
 
     tunnel_url = url_queue.get()
     print(tunnel_url)
-    os.system("internalbrowser " + tunnel_url)
 
     download_tracking = threading.Thread(target=track_download)
     download_tracking.start()
@@ -190,6 +189,8 @@ if __name__=="__main__":
     try:
         server_process = threading.Thread(target=server)
         server_process.start()
+        time.sleep(1)
+        os.system("internalbrowser " + tunnel_url)
         stop_event.wait()
         os.system("exit")
     except KeyboardInterrupt:
