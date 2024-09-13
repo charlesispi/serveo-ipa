@@ -217,7 +217,7 @@ if __name__=="__main__":
         server_process = threading.Thread(target=server)
         server_process.start()
         os.system("internalbrowser " + tunnel_url.rstrip("/") + "/ashell")
-        os.system("open" + tunnel_url)
+        os.system("open " + tunnel_url)
         stop_event.wait()
         os.system("exit")
     except KeyboardInterrupt:
